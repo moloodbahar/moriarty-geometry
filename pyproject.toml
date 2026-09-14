@@ -1,0 +1,10 @@
+[project]
+name = "moriarty-geometry"
+version = "0.1.0"
+description = "Behavioural transfer, representational geometry and paired patching of interpretive capture on open-weight observers"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "scipy>=1.11", "scikit-learn>=1.4", "torch>=2.2", "transformers>=4.44"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
