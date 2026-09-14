@@ -67,6 +67,13 @@ PYTHONPATH=src python -m pytest -q tests
 python scripts/00_verify_reconstruction.py
 ```
 
+### Google Colab
+
+Open [`notebooks/moriarty_geometry_colab.ipynb`](notebooks/moriarty_geometry_colab.ipynb) in Colab
+([direct link](https://colab.research.google.com/github/moloodbahar/moriarty-geometry/blob/master/notebooks/moriarty_geometry_colab.ipynb)),
+set the runtime to **T4 GPU**, and run the cells top to bottom. Results can be
+downloaded as a zip before the session ends.
+
 Model runs need a GPU with ~16 GB for a 7B model in bf16:
 
 ```
