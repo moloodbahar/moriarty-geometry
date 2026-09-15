@@ -82,7 +82,9 @@ for r in registry:
     for fmt in ("native", "decoupled"):
         if f"{fmt}:present" in row:
             row[f"{fmt}:delta_present_minus_neutral"] = row[f"{fmt}:present"]["p_target"] - row[f"{fmt}:neutral_primary"]["p_target"]
-    clause_out.append(row); print(r.event_id, {k: round(v, 3) for k, v in row.items() if k.endswith("neutral")})
+    clause_out.append(row)
+    deltas = {k: round(v, 3) for k, v in row.items() if k.endswith("delta_present_minus_neutral")}
+    print(r.event_id, deltas)
 
 json.dump(traj_out, open(out / "trajectory_transfer.json", "w"), indent=1, default=str)
 json.dump(clause_out, open(out / "clause_effect_transfer.json", "w"), indent=1)
