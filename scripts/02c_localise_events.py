@@ -16,17 +16,18 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 from moriarty_geometry.prompts import build_native
 from moriarty_geometry.probe import OpenWeightsProbe, run_design
+from moriarty_geometry.episodes import load_episodes
 from moriarty_geometry.clauses import split_spans, edit_step, prefix_incremental
 
 ADD_GAIN, DEL_DROP = 0.15, 0.10
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
-ap.add_argument("--episodes", default="data/episodes_confirmatory_reconstructed.json")
+ap.add_argument("--episodes", nargs="+", default=["data/episodes_confirmatory_reconstructed.json"])
 ap.add_argument("--pilot", default="results/pilot", help="directory holding trajectory_transfer.json")
 ap.add_argument("--out", default="results/pilot/localised_events.json")
 ap.add_argument("--device", default="cuda")
 args = ap.parse_args()
-conf = json.load(open(args.episodes)); traj = json.load(open(pathlib.Path(args.pilot) / "trajectory_transfer.json"))
+conf = load_episodes(args.episodes); traj = json.load(open(pathlib.Path(args.pilot) / "trajectory_transfer.json"))
 probe = OpenWeightsProbe(args.model, device=args.device)
 
 def p_goal(steps, goals, goal):

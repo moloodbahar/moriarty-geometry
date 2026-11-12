@@ -39,10 +39,15 @@ for row in clause:
     for f in ("native", "decoupled"):
         if f"{f}:present" not in row: continue
         P = row[f"{f}:present"]["p_target"]; N1 = row[f"{f}:neutral_primary"]["p_target"]
-        N2 = row[f"{f}:neutral_secondary"]["p_target"]; I = row[f"{f}:inert_neutral"]["p_target"]
+        I = row[f"{f}:inert_neutral"]["p_target"]
         add(f"[{f}] {eid}: clause effect >= 0.15", P - N1 >= 0.15, f"present-neutral={P - N1:+.3f}", gate=False)
         add(f"[{f}] {eid}: inert edit moves p by < 0.05", abs(P - I) < 0.05, f"present-inert={P - I:+.3f}")
-        add(f"[{f}] {eid}: two neutral wordings agree within 0.10", abs(N1 - N2) < 0.10, f"N1-N2={N1 - N2:+.3f}")
+        if f"{f}:neutral_secondary" in row:
+            N2 = row[f"{f}:neutral_secondary"]["p_target"]
+            add(f"[{f}] {eid}: two neutral wordings agree within 0.10", abs(N1 - N2) < 0.10, f"N1-N2={N1 - N2:+.3f}")
+        if f"{f}:cue" in row:
+            C = row[f"{f}:cue"]["p_target"]
+            add(f"[{f}] {eid}: explicit cue puts the target goal at >= 0.80", C >= 0.80, f"p_target with cue={C:.3f}")
     if "native:present" in row and "decoupled:present" in row:
         en = row["native:delta_present_minus_neutral"]; ed = row["decoupled:delta_present_minus_neutral"]
         if en >= 0.15:

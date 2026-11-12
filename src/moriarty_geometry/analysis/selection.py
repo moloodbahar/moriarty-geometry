@@ -37,8 +37,21 @@ positive present-minus-neutral effect. scripts/00b_synthetic_validation.py
 checks that the null simulation is not detected. The hypothesis predicts a
 positive effect; the test is one-sided.
 
-Unit of analysis. Cells of the 16-cell design are repeated measures of one
-event. All intervals are family-clustered bootstraps over events.
+Unit of analysis and test. Cells of the 16-cell design are repeated measures
+of one event; events are clustered in families. The TEST is a family-level
+sign-flip permutation test (family_signflip), one-sided. A family-clustered
+bootstrap interval is reported for description only: under an exact null it
+rejected about 10% of the time at a nominal 5% with 4 or 7 held-out families
+(DECISIONS.md §6.1). With n held-out families the smallest attainable p is
+2^-n, so fewer than 5 cannot reach 0.05 and 6 is the working minimum.
+
+Controls reported with the same statistic:
+  cue       positive control. Neutral step + an explicit statement of the
+            target goal. If this is not detected the instrument is blind on
+            this model and a null on real events means nothing.
+  ctl_*     lexical control. Same prompt under an instruction that needs no
+            goal inference. The clause effect there is word overlap/priming;
+            the trigger effect must exceed it.
 """
 from __future__ import annotations
 
@@ -49,7 +62,15 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-EVENT_CONDS = ("present", "neutral_primary", "neutral_secondary", "inert_neutral")
+EVENT_CONDS = ("present", "neutral_primary", "neutral_secondary", "inert_neutral", "cue",
+               "ctl_present", "ctl_neutral_primary")
+# name -> (condition a, condition b): effect = SI(a) - SI(b)
+CONTRASTS = {"present_minus_neutral_primary": ("present", "neutral_primary"),
+             "present_minus_neutral_secondary": ("present", "neutral_secondary"),
+             "present_minus_inert_neutral": ("present", "inert_neutral"),
+             "cue_minus_neutral_primary": ("cue", "neutral_primary"),
+             "ctl_present_minus_ctl_neutral": ("ctl_present", "ctl_neutral_primary")}
+MIN_TEST_FAMILIES = 6
 
 
 # ------------------------------------------------------------------ utilities
@@ -75,19 +96,40 @@ def family_split(families: Sequence[str], seed: int = 0,
     return fams[:n_train], fams[n_train:n_train + n_dev], fams[n_train + n_dev:]
 
 
-def cluster_bootstrap(values: Sequence[float], clusters: Sequence[str], n: int = 5000,
+def family_signflip(values: Sequence[float], clusters: Sequence[str], n_random: int = 20000,
+                    seed: int = 0) -> Optional[float]:
+    """One-sided sign-flip permutation p-value for 'mean > 0', with the
+    FAMILY as the exchangeable unit (events are averaged within family).
+    Exact enumeration up to 14 families. Returns None with < 2 families."""
+    v = np.asarray(values, float); c = np.asarray(clusters)
+    ok = ~np.isnan(v); v, c = v[ok], c[ok]
+    f = np.array([v[c == k].mean() for k in np.unique(c)])
+    n = len(f)
+    if n < 2:
+        return None
+    if n <= 14:
+        signs = np.array([[1.0 if (i >> k) & 1 else -1.0 for k in range(n)] for i in range(2 ** n)])
+    else:
+        signs = np.random.default_rng(seed).choice([-1.0, 1.0], size=(n_random, n))
+        signs[0] = 1.0
+    return float(np.mean((signs * f).mean(1) >= f.mean() - 1e-12))
+
+
+def cluster_bootstrap(values: Sequence[float], clusters: Sequence[str], n: int = 2000,
                       seed: int = 0) -> Dict[str, object]:
-    """Mean with a 90% two-sided (= 95% one-sided) percentile interval,
-    resampling CLUSTERS (families). With one cluster no interval exists."""
+    """Mean with a 90% percentile interval resampling CLUSTERS (families),
+    plus the family sign-flip p-value. The interval is DESCRIPTIVE (it is
+    too narrow with few families); `p_signflip` is the test."""
     v = np.asarray(values, float)
     c = np.asarray(clusters)
     ok = ~np.isnan(v)
     v, c = v[ok], c[ok]
     if len(v) == 0:
-        return {"n_events": 0, "n_families": 0, "mean": None, "ci90": None}
+        return {"n_events": 0, "n_families": 0, "mean": None, "ci90": None, "p_signflip": None}
     by = {k: v[c == k] for k in np.unique(c)}
     keys = list(by)
-    out = {"n_events": int(len(v)), "n_families": len(keys), "mean": float(v.mean()), "ci90": None}
+    out = {"n_events": int(len(v)), "n_families": len(keys), "mean": float(v.mean()), "ci90": None,
+           "p_signflip": family_signflip(v, c, seed=seed)}
     if len(keys) >= 2:
         rng = np.random.default_rng(seed)
         boots = np.empty(n)
@@ -139,11 +181,15 @@ def selection_index(pred: np.ndarray, refs_c: np.ndarray, target: int, exclude: 
 
 # ------------------------------------------------------------------------ I/O
 def save_recording(path, *, goals, dist, order, mapping, hidden: Dict[str, np.ndarray], h_cand,
-                   layers, family, episode, kind="traj", target=-1, true=0, coverage=None) -> None:
+                   layers, family, episode, kind="traj", target=-1, true=0, coverage=None, cand_cells=None) -> None:
+    """h_cand: (n_cand_cells, 4, L, d). Candidate tokens precede the answer
+    mapping, so they are stored once per distinct list order; `cand_cells`
+    gives the design-cell index of each stored row."""
+    cand_cells = list(range(len(h_cand))) if cand_cells is None else list(cand_cells)
     np.savez_compressed(
         path, goals=np.array(goals), dist=np.asarray(dist, np.float32), order=np.asarray(order),
         mapping=np.asarray(mapping), layers=np.asarray(layers), family=family, episode=episode, kind=kind,
-        target=target, true=true, h_cand=np.asarray(h_cand, np.float16),
+        target=target, true=true, h_cand=np.asarray(h_cand, np.float16), cand_cells=np.asarray(cand_cells),
         coverage=np.asarray(coverage if coverage is not None else [], np.float32),
         **{f"h_{m}": np.asarray(h, np.float16) for m, h in hidden.items()})
 
@@ -153,6 +199,7 @@ def _load(path) -> Dict[str, object]:
     rec = {"dist": z["dist"], "order": z["order"], "layers": z["layers"], "family": str(z["family"]),
            "episode": str(z["episode"]), "kind": str(z["kind"]), "target": int(z["target"]),
            "true": int(z["true"]), "h_cand": z["h_cand"],
+           "cand_cells": [int(c) for c in z["cand_cells"]] if "cand_cells" in z.files else None,
            "h": {k[2:]: z[k] for k in z.files if k.startswith("h_") and k != "h_cand"}}
     return rec
 
@@ -237,8 +284,9 @@ def _event_si(recs, ev, cond: str, marker: str, li: int, maps: Dict[int, RidgeMa
 
 def selection_effects(recs, train_families: Sequence[str], marker: str, li: int, min_dom: float = 0.5,
                       alpha: float = 1.0, min_rows: int = 4) -> Dict[str, Dict[str, float]]:
-    """Per event: SI(present) - SI(other condition), for every condition and
-    every flavour of the index. Maps are fitted on `train_families` only."""
+    """Per event: SI(a) - SI(b) for every contrast and every flavour of the
+    index, plus the behavioural clause effect. Maps are fitted on
+    `train_families` only."""
     X, Y, pos = _training_rows(recs, train_families, marker, li, min_dom)
     maps = {int(p): RidgeMap(X[pos == p], Y[pos == p], alpha)
             for p in np.unique(pos) if (pos == p).sum() >= min_rows}
@@ -247,9 +295,13 @@ def selection_effects(recs, train_families: Sequence[str], marker: str, li: int,
         s = {c: _event_si(recs, ev, c, marker, li, maps) for c in EVENT_CONDS}
         row = {}
         for flavour in ("cross", "same", "direct"):
-            for c in EVENT_CONDS[1:]:
-                row[f"{flavour}:present_minus_{c}"] = s["present"][flavour] - s[c][flavour]
+            for name, (a, b) in CONTRASTS.items():
+                row[f"{flavour}:{name}"] = s[a][flavour] - s[b][flavour]
             row[f"{flavour}:present"] = s["present"][flavour]
+        t = ev["target"]
+        beh = lambda c: float(ev["conds"][("at", c)]["dist"][:, t].mean()) if ("at", c) in ev["conds"] else float("nan")
+        row["behaviour:present_minus_neutral_primary"] = beh("present") - beh("neutral_primary")
+        row["behaviour:cue_minus_neutral_primary"] = beh("cue") - beh("neutral_primary")
         row["n_train_rows"] = int(len(pos))
         row["n_maps"] = len(maps)
         out[eid] = row
@@ -258,9 +310,12 @@ def selection_effects(recs, train_families: Sequence[str], marker: str, li: int,
 
 PRIMARY = "cross:present_minus_neutral_primary"
 INERT = "cross:present_minus_inert_neutral"
+CUE = "cross:cue_minus_neutral_primary"
+LEXICAL = "cross:ctl_present_minus_ctl_neutral"
+ALPHA = 0.05
 
 
-def analyse_selection(recs, marker: str = "after_candidates", seed: int = 0, min_dom: float = 0.5,
+def analyse_selection(recs, marker: str = "post_list", seed: int = 0, min_dom: float = 0.5,
                       alpha: float = 1.0, layer_index: Optional[int] = None) -> Dict[str, object]:
     """Full G1 analysis: fit on train families, choose the layer on
     development families, report the held-out test families once."""
@@ -282,20 +337,29 @@ def analyse_selection(recs, marker: str = "after_candidates", seed: int = 0, min
         layer_index = max(finite, key=finite.get) if finite else n_layers // 2
     test_ev = [e for e in events if fam_of[e] in test]
     clusters = [fam_of[e] for e in test_ev]
+    at = per_layer[layer_index]
     res = {"marker": marker, "families": {"train": train, "dev": dev, "test": test},
            "selected_layer_index": int(layer_index), "dev_curve_primary": dev_curve,
-           "n_test_events": len(test_ev), "test": {}, "per_event": {}}
-    keys = [k for k in per_layer[layer_index][next(iter(events))] if ":" in k]
+           "n_test_events": len(test_ev), "n_test_families": len(set(clusters)), "test": {}, "per_event": {}}
+    keys = [k for k in at[next(iter(events))] if ":" in k]
     for k in keys:
-        res["test"][k] = cluster_bootstrap([per_layer[layer_index][e][k] for e in test_ev], clusters, seed=seed)
-    diff = [per_layer[layer_index][e][PRIMARY] - per_layer[layer_index][e][INERT] for e in test_ev]
-    res["test"]["cross:trigger_minus_inert_edit"] = cluster_bootstrap(diff, clusters, seed=seed)
-    res["per_event"] = {e: dict(per_layer[layer_index][e], family=fam_of[e], kind=events[e]["kind"],
+        res["test"][k] = cluster_bootstrap([at[e][k] for e in test_ev], clusters, seed=seed)
+    res["test"]["cross:trigger_minus_inert_edit"] = cluster_bootstrap(
+        [at[e][PRIMARY] - at[e][INERT] for e in test_ev], clusters, seed=seed)
+    res["test"]["cross:trigger_minus_lexical_control"] = cluster_bootstrap(
+        [at[e][PRIMARY] - at[e][LEXICAL] for e in test_ev], clusters, seed=seed)
+    res["per_event"] = {e: dict(at[e], family=fam_of[e], kind=events[e]["kind"],
                                 split="train" if fam_of[e] in train else "dev" if fam_of[e] in dev else "test")
                         for e in events}
-    p, d = res["test"][PRIMARY], res["test"]["cross:trigger_minus_inert_edit"]
-    res["g1_supported"] = bool(p["ci90"] and p["ci90"][0] > 0 and d["ci90"] and d["ci90"][0] > 0)
+    sig = lambda k: res["test"][k]["p_signflip"] is not None and res["test"][k]["p_signflip"] <= ALPHA \
+        and (res["test"][k]["mean"] or 0) > 0
+    res["enough_families_to_test"] = res["n_test_families"] >= MIN_TEST_FAMILIES
+    res["positive_control_detected"] = sig(CUE) if res["test"][CUE]["n_events"] else None
+    lex = res["test"]["cross:trigger_minus_lexical_control"]
+    res["exceeds_lexical_control"] = sig("cross:trigger_minus_lexical_control") if lex["n_events"] else None
+    res["g1_supported"] = bool(sig(PRIMARY) and sig("cross:trigger_minus_inert_edit"))
     res["test_curve_primary"] = {li: mean_over(li, test, PRIMARY) for li in range(n_layers)}
+    res["test_curve_cue"] = {li: mean_over(li, test, CUE) for li in range(n_layers)}
     return res
 
 
@@ -313,10 +377,14 @@ def candidate_samples(recs, families: Sequence[str], li: int, min_dom: float = 0
         dom = int(np.argmax(pbar))
         if pbar[dom] < min_dom:
             continue
+        stored = r.get("cand_cells") or list(range(len(r["h_cand"])))
         for c in unique_order_cells(r["order"]):
+            if c not in stored:
+                continue
+            row = stored.index(c)
             for k in range(4):
                 gi = int(r["order"][c][k])
-                X.append(r["h_cand"][c, k, li]); y.append(int(gi == dom)); pos.append(k); grp.append(g)
+                X.append(r["h_cand"][row, k, li]); y.append(int(gi == dom)); pos.append(k); grp.append(g)
                 is_true.append(gi == r["true"]); dom_true.append(dom == r["true"]); fam.append(r["family"])
             g += 1
     return (np.asarray(X, np.float32), np.asarray(y), np.asarray(pos), np.asarray(grp),

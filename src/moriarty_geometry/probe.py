@@ -94,12 +94,31 @@ class OpenWeightsProbe:
     # ---- prompt rendering with marker mapping ----
     def render(self, spec: PromptSpec) -> Tuple[str, Dict[str, int]]:
         """Apply the chat template; return the rendered string and the char
-        offset of each marker inside the rendered string."""
-        msgs = [{"role": "system", "content": spec.system}, {"role": "user", "content": spec.user}]
-        try:
-            text = self.tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-        except Exception:
+        offset of each marker inside the rendered string.
+
+        Some templates reject a system role. Three renderings are tried in
+        order and the one used is kept in `self.template_mode` and printed
+        once, because a silent change of prompt format changes every result:
+          system+user  -> the model's own chat template with a system turn
+          user-only    -> chat template, system text prepended to the user turn
+          plain        -> no chat template at all"""
+        attempts = (("system+user", [{"role": "system", "content": spec.system}, {"role": "user", "content": spec.user}]),
+                    ("user-only", [{"role": "user", "content": spec.system + "\n\n" + spec.user}]))
+        text, mode = None, "plain"
+        for name, msgs in attempts:
+            try:
+                cand = self.tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+            except Exception:
+                continue
+            if cand and spec.user in cand and (name == "user-only" or spec.system in cand):
+                text, mode = cand, name
+                break
+        if text is None:
             text = spec.system + "\n\n" + spec.user + "\n"
+        if getattr(self, "template_mode", None) != mode:
+            self.template_mode = mode
+            print(f"[probe] prompt rendering: {mode}" + ("" if mode == "system+user" else
+                  "  <-- NOT the standard system+user chat format; check this is intended"), flush=True)
         u0 = text.find(spec.user)
         if u0 < 0:
             raise RuntimeError("user text not found verbatim in rendered template")
@@ -193,6 +212,15 @@ class OpenWeightsProbe:
         ids, offsets, markers = self._encode(spec)
         cut = markers["after_story"]
         return sum(1 for (s, e) in offsets if s >= cut and e > s)
+
+    def offset_from_end(self, spec: PromptSpec, marker: str) -> int:
+        """How many positions from the end the marker's token sits (1 = the
+        answer position). Cells that differ only in list order or only in the
+        mapping share this offset, which is what cross-cell patching needs."""
+        ids, offsets, markers = self._encode(spec)
+        if marker == "answer":
+            return 1
+        return int(ids.shape[1] - self._token_index_for_char(offsets, markers[marker]))
 
     def describe_markers(self, spec: PromptSpec) -> Dict[str, Tuple[int, str]]:
         """marker -> (token index, token text). Print this once per model and

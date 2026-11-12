@@ -5,26 +5,34 @@ Three kinds of file are written to --out (all .npz, float16):
   ref__<episode>.npz                       context-free reference vector of each goal text
   <episode>__t<k>__traj__<fmt>.npz         every prefix t = 0..T of every episode
   <event>__<pre|at>__<condition>__<fmt>.npz   each registry event under present /
-                                           neutral_primary / neutral_secondary / inert_neutral
+                                           neutral_primary / neutral_secondary / inert_neutral /
+                                           cue (positive control) / ctl_present, ctl_neutral_primary
+                                           (same prompts under the control task; decoupled only)
 
 Per prompt cell the read-outs are: the last token of each candidate BY LIST
-POSITION (h_cand), the token after the candidate list and before the answer
-mapping (h_after_candidates), and the answer position (h_answer).
+POSITION (h_cand); the last token of the list (h_after_candidates, which is
+candidate 4's last token); the header token after the list and before the
+answer mapping (h_post_list, the primary read-out); and the answer position
+(h_answer).
+
+Trajectory prefixes use the cyclic list orders; events use a second,
+non-cyclic Latin square, so maps fitted on the former are tested on orders
+with different neighbours.
 
 Run with --show-markers first and read the printed tokens.
 """
 import argparse, json, sys, pathlib
 import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
-from moriarty_geometry.prompts import build_native, build_decoupled, decoupled_design
+from moriarty_geometry.prompts import build_native, build_decoupled, decoupled_design, klein_orders
 from moriarty_geometry.probe import OpenWeightsProbe
-from moriarty_geometry.clauses import split_spans, edit_step
-from moriarty_geometry.neutral import load_registry
-from moriarty_geometry.analysis.selection import save_recording, family_of
+from moriarty_geometry.neutral import load_registry, condition_texts
+from moriarty_geometry.episodes import load_episodes
+from moriarty_geometry.analysis.selection import save_recording, family_of, unique_order_cells
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
-ap.add_argument("--episodes", default="data/episodes_confirmatory_reconstructed.json")
+ap.add_argument("--episodes", nargs="+", default=["data/episodes_confirmatory_reconstructed.json"])
 ap.add_argument("--registry", default="data/neutral_registry.json")
 ap.add_argument("--format", choices=["native", "decoupled"], default="decoupled")
 ap.add_argument("--mode", choices=["all", "events", "trajectory"], default="all")
@@ -34,18 +42,19 @@ ap.add_argument("--out", default="results/activations")
 ap.add_argument("--device", default="cuda")
 args = ap.parse_args()
 out = pathlib.Path(args.out); out.mkdir(parents=True, exist_ok=True)
-conf = json.load(open(args.episodes))
+conf = load_episodes(args.episodes)
 probe = OpenWeightsProbe(args.model, device=args.device)
 L = probe.n_layers + 1
 layers = sorted(set(range(0, L, args.layer_step)) | {L - 1})
 probe.capture_layers = layers
 CAND = [f"cand_end_{k}" for k in range(4)]
-MARKERS = CAND + ["after_candidates", "answer"]
+READOUTS = ["after_candidates", "post_list", "answer"]
+MARKERS = CAND + READOUTS
 
-def specs_for(steps, goals):
+def specs_for(steps, goals, orders=None, task="goal"):
     if args.format == "native":
         return [build_native(steps, goals, r) for r in range(4)]
-    return [build_decoupled(steps, goals, o, m) for o, m in decoupled_design()]
+    return [build_decoupled(steps, goals, o, m, task=task) for o, m in decoupled_design(orders)]
 
 if args.show_markers:
     ep = next(iter(conf.values()))["episode"]
@@ -55,20 +64,23 @@ if args.show_markers:
         for name, (i, tok) in sorted(probe.describe_markers(spec).items(), key=lambda kv: kv[1][0]):
             print(f"  {name:18s} token {i:5d}  {tok!r}")
     print("Expected: cand_end_k = last token of candidate k's text (not a newline or the next number);\n"
-          "after_candidates = cand_end_3; answer = the last token of the generation prompt.")
+          "after_candidates = cand_end_3; post_list = the end of the 'ANSWER MAPPING:' header (decoupled)\n"
+          "or of 'Which is most likely?' (native), never a mapping letter; answer = the last token of the\n"
+          "generation prompt. Also check the '[probe] prompt rendering' line above says system+user.")
     sys.exit(0)
 
-def record(steps, goals, path, **meta):
-    dist, order, mapping, cov, H, HC = [], [], [], [], {"after_candidates": [], "answer": []}, []
-    for spec in specs_for(steps, goals):
+def record(steps, goals, path, orders=None, task="goal", **meta):
+    dist, order, mapping, cov, H, HC = [], [], [], [], {m: [] for m in READOUTS}, []
+    for spec in specs_for(steps, goals, orders, task):
         res = probe.call(spec, capture=MARKERS)
         dist.append([res.goal_dist[g] for g in goals]); order.append(spec.order); mapping.append(spec.mapping)
         cov.append(res.coverage)
         for m in H: H[m].append(res.hidden[m].float().numpy())
         HC.append(np.stack([res.hidden[c].float().numpy() for c in CAND]))
+    keep = unique_order_cells(np.array(order))         # candidate tokens do not depend on the mapping
     save_recording(path, goals=goals, dist=dist, order=order, mapping=mapping,
-                   hidden={m: np.stack(v) for m, v in H.items()}, h_cand=np.stack(HC), layers=layers,
-                   coverage=cov, **meta)
+                   hidden={m: np.stack(v) for m, v in H.items()}, h_cand=np.stack([HC[c] for c in keep]),
+                   cand_cells=keep, layers=layers, coverage=cov, **meta)
 
 def goal_index(goals, text):
     if text in goals: return goals.index(text)
@@ -95,16 +107,18 @@ if args.mode in ("all", "events"):
     registry = load_registry(args.registry)
     if any(r.status != "FROZEN" for r in registry):
         print("NOTE: neutral registry is not FROZEN — these recordings are development data only.")
+    ev_orders = klein_orders() if args.format == "decoupled" else None
     for r in registry:
         ep = conf[r.episode_id]["episode"]; goals = ep["goals"]; step = ep["steps"][r.step - 1]
-        spans = split_spans(step); before = ep["steps"][: r.step - 1]
+        before = ep["steps"][: r.step - 1]
         meta = dict(family=family_of(r.episode_id), episode=r.episode_id, kind=r.trigger_type,
                     target=goal_index(goals, r.target_goal), true=goal_index(goals, ep["true"]))
-        conds = {"present": step,
-                 "neutral_primary": edit_step(step, spans, r.clause_index, r.neutral_primary),
-                 "neutral_secondary": edit_step(step, spans, r.clause_index, r.neutral_secondary),
-                 "inert_neutral": edit_step(step, spans, r.inert_index, r.inert_neutral)}
-        record(before, goals, out / f"{r.event_id}__pre__present__{args.format}.npz", **meta)
+        conds = condition_texts(r, step)
+        name = lambda label, c: out / f"{r.event_id}__{label}__{c}__{args.format}.npz"
+        record(before, goals, name("pre", "present"), ev_orders, **meta)
         for cname, text in conds.items():
-            record(before + [text], goals, out / f"{r.event_id}__at__{cname}__{args.format}.npz", **meta)
+            record(before + [text], goals, name("at", cname), ev_orders, **meta)
+        if args.format == "decoupled":
+            for cname in ("present", "neutral_primary"):
+                record(before + [conds[cname]], goals, name("at", "ctl_" + cname), ev_orders, task="length", **meta)
         print("event", r.event_id)

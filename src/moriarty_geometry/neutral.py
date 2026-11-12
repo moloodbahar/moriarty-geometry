@@ -107,3 +107,28 @@ def save_registry(path: str, records: List[NeutralRecord]) -> str:
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"sha256": h, "records": [asdict(r) for r in records]}, f, indent=2, ensure_ascii=False)
     return h
+
+
+CUE_TEMPLATE = " [Author's note: the hidden goal is: {goal}]"
+
+
+def condition_texts(rec: NeutralRecord, step_text: str) -> Dict[str, str]:
+    """Step text under each clause condition of an event.
+
+    An EMPTY replacement string means the contrast is deletion of the clause
+    (used for events found by scripts/02d_scan_clauses.py, which have no
+    hand-written neutral sentence). `neutral_secondary` is omitted when no
+    second wording exists.
+
+    `cue` is the positive control: the neutral version of the step followed
+    by an explicit statement of the target goal. It checks that the read-out
+    statistic CAN detect a goal the prompt makes unmistakable; it says
+    nothing about selection, since the goal text is copied into the story."""
+    spans = split_spans(step_text)
+    neutral = edit_step(step_text, spans, rec.clause_index, rec.neutral_primary or None)
+    out = {"present": step_text, "neutral_primary": neutral,
+           "inert_neutral": edit_step(step_text, spans, rec.inert_index, rec.inert_neutral or None),
+           "cue": neutral + CUE_TEMPLATE.format(goal=rec.target_goal)}
+    if rec.neutral_secondary:
+        out["neutral_secondary"] = edit_step(step_text, spans, rec.clause_index, rec.neutral_secondary)
+    return out

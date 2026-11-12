@@ -148,9 +148,9 @@ consecutive prefixes differ in length and content as well as in the clause.
 
 The unit is the event. Cells of the 16-cell design are repeated measures,
 and read-outs taken before the answer mapping are identical across the four
-mappings of a list order, so they are de-duplicated. Intervals are
-family-clustered bootstraps; the test is one-sided (lower bound of the 90%
-interval above zero), for both the effect and its excess over the inert edit.
+mappings of a list order, so they are de-duplicated. The test is one-sided,
+for both the effect and its excess over the inert edit. (The bootstrap
+interval first used as the test here was miscalibrated; see §6.1.)
 
 ### 5.4 An artefact found by the null simulation, and its fix
 
@@ -202,7 +202,102 @@ models for H2.
 
 ### 5.8 What has and has not been run
 
-31 unit tests pass. All scripts were executed end to end on a randomly
+The unit tests pass (35 after §6). All scripts were executed end to end on a randomly
 initialised 3-layer model (`tests/test_scripts_tinymodel.py`), which checks
 code paths and file shapes only. **Nothing in this change has been run on a
 real model.**
+
+## 6. Second change of 2026-11-12: review of §5 before any model run
+
+The PI asked for an independent second look before starting. Nothing had
+been run on a model, so everything below was free to change.
+
+### 6.1 The test in §5.3 was miscalibrated
+
+Under an exact null (two independent draws of the same condition) the
+family-clustered bootstrap rejected about 10% of the time at a nominal 5%,
+with 4 and with 7 held-out families. The "0 of 60 null simulations" of §5.4
+was true but flattering: that null has a negative mean.
+
+Replaced by a **family-level sign-flip permutation test**, one-sided, events
+averaged within family (`selection.family_signflip`). Measured rejection
+under the exact null: 3.7% over 80 simulations at 7 held-out families. The
+bootstrap interval is still printed, as description only.
+
+Consequence for design: with n held-out families the smallest attainable p
+is 2^-n. Four families cannot reach 0.05. **Six held-out families is the
+working minimum**, which at the 50/20/30 split means about 20 families with
+events. Scripts print this and never report "supported" below it.
+
+### 6.2 Read-out token
+
+`after_candidates` is the last token of candidate 4, so it mostly carries
+how well candidate 4 fits the story. The primary read-out is now
+`post_list`: the header token after the whole list and before the mapping
+content. It has seen all four candidates and is identical across mappings.
+`after_candidates` and `answer` are still recorded and analysed.
+
+### 6.3 Two controls on the real model
+
+* **Positive control (`cue`).** The neutral version of the step followed by
+  an explicit statement of the target goal. The simulation only shows that
+  the code recovers the generative model it was written for; it cannot show
+  the statistic is sensitive on a transformer. If the cue is not detected by
+  the cross-position index, a null on real events is uninterpretable. If the
+  cue is detected by the same-position index only, content is readable but
+  position-bound even when the goal is unmistakable, which is itself an
+  answer to the Li question.
+* **Lexical control (`ctl_*`).** The same prompts under an instruction that
+  needs no goal inference ("which sentence is longest"). A trigger clause
+  usually shares words with its target goal; the clause effect under this
+  instruction is that overlap. The trigger effect must exceed it.
+
+### 6.4 The primary causal test is a cross-cell patch
+
+`scripts/06_patching.py`, phase C. The present-minus-neutral difference at
+one read-out token of a source cell is added to the neutral run of a
+recipient cell of the same event that has a different list order. The answer
+then moves either to the target goal (position-invariant content code) or to
+the goal sitting at the source's target position (position-bound code). The
+same across answer mappings, at the answer position, separates content from
+letter. This needs no reference vectors, no map and no training families,
+and it is the causal form of the Li et al. claim. The subspace patch of §5.5
+is kept as a secondary analysis (phase B).
+
+### 6.5 Smaller changes
+
+* Prompt rendering is explicit. `probe.render` tries system+user, then a
+  user-only chat turn, then plain text, prints which one it used, and the
+  patching output records it. Before, a template that rejected a system role
+  fell back to plain text silently.
+* Events are recorded under a second, non-cyclic Latin square of list
+  orders; trajectory prefixes (on which the maps are fitted) keep the cyclic
+  one. In the cyclic square a goal always has the same neighbour before it.
+* Candidate-token activations are stored once per list order.
+* Both shipped episode schemas load through `episodes.load_episodes`.
+
+### 6.6 Clause scan: a development sample, not the preregistered one
+
+`scripts/02d_scan_clauses.py` tests every clause of every step on the
+recorded model and keeps those where addition and deletion agree for one
+goal (gain >= 0.15, drop >= 0.10). The contrast for these events is deletion
+of the clause; the inert control is deletion of the least effective other
+clause of the same step. Reasons: 5 events in 3 families cannot exercise any
+test (6.1), and the geometry question needs a clause that moves a goal, not
+the full capture/release trajectory shape. Whether the moved goal is the
+true or a wrong one is kept as `trigger_type`, which is what the
+wrong-vs-right comparison needs.
+
+Limits, stated so they are not forgotten: these events are selected on
+effect size (selection in NATIVE, analysis in DECOUPLED, so the analysed
+measurement is not the selected one); deletion changes discourse coherence
+in a way a neutral replacement does not; and this is not the sample defined
+in PREREGISTRATION §3. Results on it are exploratory. It exists to find out
+whether the instrument works before families are generated at scale.
+
+### 6.7 Still not done
+
+Verified only on a random tiny model. Not implemented: a sweep over every
+token between the list and the answer; the matched-confidence wrong-vs-right
+probe; sparse-autoencoder decomposition; belief-vs-report prompts; the LoRA
+observer; mixed-effects models for H2. The open decisions of §5.6 stand.

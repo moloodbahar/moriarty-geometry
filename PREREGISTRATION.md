@@ -201,6 +201,11 @@ These are proposed and implemented in code, but each needs a decision before the
 4. **H4.** Patches are applied at block outputs at the last `--tail` positions (default 1, the answer position). Added controls: another family's event as donor; a subspace learned from present-minus-inert-edit differences. Sanity checks that gate the analysis: identity patch and last-block answer-position patch, tolerance 5e-3.
 5. **Open: sample definition.** Whether H1 transfer gates H2–H4 (§6, unchanged here) or events are detected and localised on the recorded model.
 6. **Open: H2 probe.** Multinomial dominant-goal probe (§5.2) vs the shared binary probe in `analysis/decoding.py`.
+7. **Test statistic (supersedes the bootstrap in item 1).** Family-level sign-flip permutation test, one-sided, α = 0.05, events averaged within family. Minimum 6 held-out families; below that no confirmatory test is reported. Reason: the clustered bootstrap rejected about 10% under an exact null (DECISIONS.md §6.1).
+8. **Primary read-out.** `post_list` (after the candidate list, before the answer mapping), not `after_candidates`, which is the last token of the fourth candidate.
+9. **Controls required for interpreting H3.** Explicit-cue positive control; control-task lexical control. H3 is reported as supported only if the trigger effect also exceeds the inert-edit effect; whether it exceeds the lexical control is reported alongside.
+10. **H4 primary analysis.** Cross-cell patch (source and recipient cells differ in list order; and in answer mapping at the answer position): change in probability of the target goal minus that of the position-matched (letter-matched) competitor, block chosen on development families. The subspace patch of §5.4 becomes secondary.
+11. **Not part of this preregistration.** Events found by `scripts/02d_scan_clauses.py` (clause scan, deletion contrast) are a development sample; analyses on them are exploratory.
 
 ---
 

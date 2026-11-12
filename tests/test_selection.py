@@ -1,7 +1,7 @@
 import subprocess, sys, pathlib, json
 import numpy as np
 from moriarty_geometry.analysis.simulate import simulate, write
-from moriarty_geometry.analysis.selection import (analyse_selection, family_split, cluster_bootstrap,
+from moriarty_geometry.analysis.selection import (analyse_selection, family_split, cluster_bootstrap, family_signflip,
                                                     unique_order_cells, load_recordings, PRIMARY,
                                                     value_probe_and_truth_transfer)
 
@@ -30,14 +30,27 @@ def test_pre_mapping_cells_are_deduplicated():
     assert len(unique_order_cells(recs["traj"][0]["order"])) == 4
 
 
+def test_signflip_is_exact_and_needs_five_families_to_reach_005():
+    assert family_signflip([1.0, 2.0], ["a", "a"]) is None
+    v = [1.0] * 4; c = list("abcd")
+    assert abs(family_signflip(v, c) - 1 / 16) < 1e-12          # 4 families: cannot reach 0.05
+    assert abs(family_signflip([1.0] * 5, list("abcde")) - 1 / 32) < 1e-12
+    assert family_signflip([1, -1, 1, -1, 1, -1], list("abcdef")) > 0.3
+    # events are averaged within family first: many events in one family do not shrink p
+    assert abs(family_signflip([1.0] * 40, ["a"] * 37 + ["b", "c", "d"]) - 1 / 16) < 1e-12
+
+
 def test_planted_selected_code_is_detected_and_null_is_not():
-    hit = [analyse_selection(simulate(12, 64, 1.0, seed=s), seed=s) for s in range(4)]
-    assert all(r["g1_supported"] for r in hit)
+    hit = [analyse_selection(simulate(24, 48, 1.0, seed=s), seed=s) for s in range(3)]
+    assert all(r["g1_supported"] and r["positive_control_detected"] and r["exceeds_lexical_control"] for r in hit)
     assert all(r["selected_layer_index"] > 0 for r in hit)          # layer 0 carries no selected code
-    null = [analyse_selection(simulate(12, 64, 0.0, seed=s), seed=s) for s in range(8)]
+    null = [analyse_selection(simulate(24, 48, 0.0, seed=s), seed=s) for s in range(4)]
     assert not any(r["g1_supported"] for r in null)
     # the position-bound code alone still moves the SAME-position index: that is why it is not the test
     assert np.mean([r["test"]["same:present_minus_neutral_primary"]["mean"] for r in null]) > 0.05
+    # too few held-out families: flagged, and never "supported"
+    small = analyse_selection(simulate(12, 48, 1.0, seed=0), seed=0)
+    assert small["n_test_families"] < 6 and not small["enough_families_to_test"] and not small["g1_supported"]
 
 
 def test_truth_transfer_runs_and_reports_wrong_commitments():
@@ -55,4 +68,4 @@ def test_analyse_script_end_to_end(tmp_path):
     subprocess.run([sys.executable, str(ROOT / "scripts" / "04_analyse.py"), "--activations", str(tmp_path / "act"),
                     "--out", str(out)], check=True, capture_output=True)
     res = json.load(open(out))
-    assert res["status"] == "DEVELOPMENT ONLY" and res["G1:after_candidates"]["test"][PRIMARY]["mean"] > 0
+    assert res["status"] == "DEVELOPMENT ONLY" and res["G1:post_list"]["test"][PRIMARY]["mean"] > 0

@@ -81,7 +81,8 @@ def test_markers_point_at_candidate_ends_and_suffix_is_shared():
     d = pr.describe_markers(P_)
     idx = [d[f"cand_end_{k}"][0] for k in range(4)]
     assert idx == sorted(idx) and len(set(idx)) == 4
-    assert d["cand_end_3"][0] == d["after_candidates"][0] < d["answer"][0]
+    assert d["cand_end_3"][0] == d["after_candidates"][0] < d["post_list"][0] < d["answer"][0]
+    assert pr.offset_from_end(P_, "post_list") == pr.offset_from_end(N_, "post_list") > 1
     assert pr.suffix_len(P_) == pr.suffix_len(N_) > 0
 
 

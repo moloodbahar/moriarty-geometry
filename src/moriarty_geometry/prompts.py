@@ -36,6 +36,17 @@ SYSTEM_DECOUPLED = (
     "most likely with the SINGLE LETTER assigned to it, and nothing else."
 )
 
+# Control task for the lexical-overlap check: same user text up to the final
+# question, but nothing in the task requires inferring a goal. A clause that
+# shifts the read-out toward a goal's content under THIS instruction does so
+# by word overlap or priming, not by selection.
+SYSTEM_CONTROL = (
+    "You are given a passage and four numbered sentences. After the list you "
+    "will be given a mapping from list position to answer letter. Answer with "
+    "the SINGLE LETTER assigned to the LONGEST of the four sentences, and "
+    "nothing else. What the passage is about does not matter."
+)
+
 T0_TEXT = "(the story has not started yet)"
 
 
@@ -103,6 +114,7 @@ def build_native(steps: Sequence[str], goals: Sequence[str], rotation: int,
     user = "\n".join(lines)
     markers = {"after_candidates": len(user)}
     _add_position_markers(user, story_block(steps), cand_lines, markers)
+    markers["post_list"] = len(user) + len("\n\nWhich is most likely?")
     user += "\n\nWhich is most likely? Answer with a single letter."
     return PromptSpec(SYSTEM_NATIVE, user, letter_to_goal, order, tuple(LETTERS), markers, "native")
 
@@ -124,8 +136,16 @@ def latin_mappings() -> List[Tuple[str, ...]]:
     return [("C", "A", "D", "B"), ("B", "D", "A", "C"), ("D", "C", "B", "A"), ("A", "B", "C", "D")]
 
 
+def klein_orders() -> List[Tuple[int, ...]]:
+    """A second Latin square, not cyclic. In the cyclic rotations a goal is
+    always preceded by the same neighbour; recording events under these
+    orders while maps are fitted on cyclic ones removes that regularity."""
+    return [(0, 1, 2, 3), (1, 0, 3, 2), (2, 3, 0, 1), (3, 2, 1, 0)]
+
+
 def build_decoupled(steps: Sequence[str], goals: Sequence[str], order: Sequence[int],
-                    mapping: Sequence[str], chars_block: Optional[str] = None) -> PromptSpec:
+                    mapping: Sequence[str], chars_block: Optional[str] = None,
+                    task: str = "goal") -> PromptSpec:
     """order[pos] = canonical goal index shown at list position pos (1-based
     in the prompt); mapping[pos] = answer letter assigned to that position."""
     assert sorted(order) == [0, 1, 2, 3] and sorted(mapping) == LETTERS
@@ -139,11 +159,20 @@ def build_decoupled(steps: Sequence[str], goals: Sequence[str], order: Sequence[
     markers = {"after_candidates": len(user)}
     _add_position_markers(user, story_block(steps), cand_lines, markers)
     map_str = "; ".join(f"{ORDINALS[pos]} -> {mapping[pos]}" for pos in range(4))
+    # post_list: the header token after the whole list and before the mapping
+    # content. Unlike after_candidates it is not the last token of candidate 4,
+    # and it is still identical across the four mappings of an order.
+    markers["post_list"] = len(user) + len("\n\nANSWER MAPPING:")
     user += f"\n\nANSWER MAPPING: {map_str}."
     markers["after_mapping"] = len(user)
-    user += "\n\nWhich is most likely? Answer with the single letter assigned to it."
+    assert task in ("goal", "length")
+    if task == "goal":
+        user += "\n\nWhich is most likely? Answer with the single letter assigned to it."
+    else:
+        user += "\n\nWhich is the longest? Answer with the single letter assigned to it."
     letter_to_goal = {mapping[pos]: goals[order[pos]] for pos in range(4)}
-    return PromptSpec(SYSTEM_DECOUPLED, user, letter_to_goal, tuple(order), tuple(mapping), markers, "decoupled")
+    return PromptSpec(SYSTEM_DECOUPLED if task == "goal" else SYSTEM_CONTROL, user, letter_to_goal,
+                      tuple(order), tuple(mapping), markers, "decoupled")
 
 
 def decoupled_design(orders: Optional[List[Tuple[int, ...]]] = None,

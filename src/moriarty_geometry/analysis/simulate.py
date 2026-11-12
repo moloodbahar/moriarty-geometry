@@ -40,7 +40,9 @@ def _orth(rng, d):
 
 
 def simulate(n_families: int = 12, d: int = 96, strength: float = 1.0, noise: float = 0.6,
-             seed: int = 0, n_layers: int = 3) -> Dict[str, object]:
+             seed: int = 0, n_layers: int = 3, inert_peak: float = 0.80) -> Dict[str, object]:
+    """inert_peak = 0.82 makes the inert-edit condition an independent draw of
+    exactly the present condition: an exact null for calibrating the test."""
     rng = np.random.default_rng(seed)
     B = [_orth(rng, d) for _ in range(4)]
     M = _orth(rng, d)
@@ -48,7 +50,7 @@ def simulate(n_families: int = 12, d: int = 96, strength: float = 1.0, noise: fl
     value_axis = rng.standard_normal(d)
     recs: Dict[str, object] = {"events": {}, "traj": [], "refs": {}}
 
-    def record(p, family, episode, kind="traj", target=-1):
+    def record(p, family, episode, kind="traj", target=-1, selected=True):
         p = np.asarray(p, float)
         dom = int(np.argmax(p))
         dist, order, hx, hc = [], [], [], []
@@ -63,7 +65,7 @@ def simulate(n_families: int = 12, d: int = 96, strength: float = 1.0, noise: fl
                 x = common.copy()
                 for k in range(4):
                     x += p[o[k]] * (B[k] @ Rc[o[k]])
-                if li > 0:
+                if li > 0 and selected:
                     x += strength * p[dom] * (M @ Rc[dom])
                 layers_x.append(x + noise * rng.standard_normal(d))
                 layers_c.append([common + p[o[k]] * 2.0 * value_axis + B[k] @ Rc[o[k]]
@@ -74,7 +76,7 @@ def simulate(n_families: int = 12, d: int = 96, strength: float = 1.0, noise: fl
         hx = np.array(hx)
         return {"dist": np.array(dist), "order": np.array(order), "layers": np.arange(n_layers),
                 "family": family, "episode": episode, "kind": kind, "target": target, "true": 0,
-                "h_cand": np.array(hc), "h": {"after_candidates": hx, "answer": hx.copy()}}
+                "h_cand": np.array(hc), "h": {"post_list": hx, "after_candidates": hx.copy(), "answer": hx.copy()}}
 
     peak = lambda g, a=0.82: np.array([a if i == g else (1 - a) / 3 for i in range(4)])
     flat = np.array([0.25, 0.25, 0.25, 0.25])
@@ -99,7 +101,11 @@ def simulate(n_families: int = 12, d: int = 96, strength: float = 1.0, noise: fl
                 target = wrong if captured else 0
                 eid = f"{episode}_s{2 if captured else 5}_{kind}"
                 conds = {("at", "present"): record(peak(target), family, episode, kind, target),
-                         ("at", "inert_neutral"): record(peak(target, 0.8), family, episode, kind, target),
+                         ("at", "inert_neutral"): record(peak(target, inert_peak), family, episode, kind, target),
+                         ("at", "cue"): record(peak(target, 0.97), family, episode, kind, target),
+                         # control task: same position-bound code, no selection demanded
+                         ("at", "ctl_present"): record(peak(target), family, episode, kind, target, selected=False),
+                         ("at", "ctl_neutral_primary"): record(peak(target, 0.34), family, episode, kind, target, selected=False),
                          ("at", "neutral_primary"): record(peak(target, 0.34), family, episode, kind, target),
                          ("at", "neutral_secondary"): record(peak(target, 0.36), family, episode, kind, target),
                          ("pre", "present"): record(flat, family, episode, kind, target)}

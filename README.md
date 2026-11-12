@@ -36,14 +36,17 @@ amendments that are implemented but not yet decided.
 ```
 src/moriarty_geometry/
   clauses.py        span-based clause splitting and editing, exact reconstruction
-  prompts.py        NATIVE (4 rotations) and DECOUPLED (16 cells) probe formats; read-out markers
+  episodes.py       one loader for both shipped episode schemas
+  prompts.py        NATIVE (4 rotations) and DECOUPLED (16 cells) probe formats; read-out markers;
+                    control-task prompt; second (non-cyclic) set of list orders
   probe.py          open-weights probe: exact label mass, marker capture, logit lens,
                     block-level capture and patching, goal reference vectors
   trajectory.py     q, W, H, JSD and the five MORIARTY events (thresholds unchanged)
-  neutral.py        per-event neutral-replacement registry with validation + hash
+  neutral.py        per-event neutral-replacement registry with validation + hash;
+                    text of every clause condition (replacement, deletion, explicit cue)
   analysis/
-    selection.py    cross-position selection index (primary G1/H3 test), family splits,
-                    clustered bootstrap, candidate-token probes
+    selection.py    cross-position selection index (primary G1/H3 statistic), family splits,
+                    family sign-flip test, positive and lexical controls, candidate-token probes
     simulate.py     synthetic recordings with a planted or absent selected code
     decoding.py     family-split dominance probe, layer selection, regime contrasts
     geometry.py     CCGP, parallelism, shuffle null
@@ -55,17 +58,19 @@ scripts/
   01_reconstruct_confirmatory.py rebuild episodes + posteriors from call logs
   02_behavioural_pilot.py        trajectories and clause effects on one open-weight model
   02b_smoke_report.py            PASS/FAIL gates on the pilot
-  02c_localise_events.py         clause localisation on the recorded model
+  02c_localise_events.py         clause localisation at detected events, on the recorded model
+  02d_scan_clauses.py            every clause of every step -> a development registry (deletion contrast)
   03_record_activations.py       reference vectors, all prefixes, registry events
   04_analyse.py                  selection index + candidate-token analyses
   05_feasibility.py              sample-size estimate from pilot yields
-  06_patching.py                 patching sanity checks, subspace patch with controls
+  06_patching.py                 patching sanity checks, cross-cell patch (primary causal test),
+                                 subspace patch (secondary)
 data/
   episodes_exploratory.json                 40 Dataset 1-2 episodes (public repo)
   episodes_confirmatory_reconstructed.json  14 confirmatory episodes + Agent-B posteriors, rebuilt from logs
   triggers_pilot.json                       original pilot trigger records
   neutral_registry.json                     DRAFT per-event replacements for the 5 strict positions
-tests/                                      31 tests, including an end-to-end run of the scripts on a random tiny model
+tests/                                      35 tests, including end-to-end runs of the scripts on a random tiny model
 ```
 
 ## Running it
@@ -80,10 +85,11 @@ python scripts/00_verify_reconstruction.py
 python scripts/00b_synthetic_validation.py
 python scripts/02_behavioural_pilot.py --model Qwen/Qwen2.5-7B-Instruct --format both
 python scripts/02b_smoke_report.py results/pilot
+python scripts/02d_scan_clauses.py --model Qwen/Qwen2.5-7B-Instruct          # development events
 python scripts/03_record_activations.py --model Qwen/Qwen2.5-7B-Instruct --show-markers
-python scripts/03_record_activations.py --model Qwen/Qwen2.5-7B-Instruct
+python scripts/03_record_activations.py --model Qwen/Qwen2.5-7B-Instruct ...  # see RUNBOOK
 python scripts/04_analyse.py
-python scripts/06_patching.py --model Qwen/Qwen2.5-7B-Instruct
+python scripts/06_patching.py --model Qwen/Qwen2.5-7B-Instruct ...
 ```
 
 Model runs need a GPU with ~16 GB for a 7B model in bf16. On Colab, open
@@ -91,10 +97,12 @@ Model runs need a GPU with ~16 GB for a 7B model in bf16. On Colab, open
 ([direct link](https://colab.research.google.com/github/moloodbahar/moriarty-geometry/blob/master/notebooks/moriarty_geometry_colab.ipynb))
 with a T4 GPU runtime.
 
-The shipped registry has 5 events from 3 families (1 capture). Everything
-computed on it is development material; the scripts label their output
-accordingly. See DECISIONS.md §5 for what changed on 2026-11-12, what is
-still undecided, and what has not been run.
+The shipped registry has 5 events from 3 families (1 capture). No test can
+reach p <= 0.05 with fewer than 6 held-out families, so everything computed
+on it is development material and the scripts say so. `02d_scan_clauses.py`
+builds a larger development sample from the existing episodes. See
+DECISIONS.md §5 and §6 for what changed on 2026-11-12, what is still
+undecided, and what has not been run.
 
 ## Provenance
 

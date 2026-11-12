@@ -16,12 +16,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 from moriarty_geometry.prompts import build_native, build_decoupled, decoupled_design, chars_block_level2
 from moriarty_geometry.probe import OpenWeightsProbe, run_design
 from moriarty_geometry.trajectory import make_point, events
+from moriarty_geometry.episodes import load_episodes
 from moriarty_geometry.clauses import split_spans, edit_step
-from moriarty_geometry.neutral import load_registry
+from moriarty_geometry.neutral import load_registry, condition_texts
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
-ap.add_argument("--episodes", default="data/episodes_confirmatory_reconstructed.json")
+ap.add_argument("--episodes", nargs="+", default=["data/episodes_confirmatory_reconstructed.json"])
 ap.add_argument("--registry", default="data/neutral_registry.json")
 ap.add_argument("--format", choices=["native", "decoupled", "both"], default="native")
 ap.add_argument("--observer", choices=["naive", "agent_b"], default="naive")
@@ -30,7 +31,7 @@ ap.add_argument("--device", default="cuda")
 args = ap.parse_args()
 out = pathlib.Path(args.out); out.mkdir(parents=True, exist_ok=True)
 
-conf = json.load(open(args.episodes))
+conf = load_episodes(args.episodes)
 probe = OpenWeightsProbe(args.model, device=args.device)
 
 def designs(steps, goals, cb):
@@ -65,13 +66,7 @@ registry = load_registry(args.registry)
 for r in registry:
     ep = conf[r.episode_id]["episode"]; goals = ep["goals"]; step = ep["steps"][r.step - 1]
     spans = split_spans(step)
-    conds = {
-        "present": step,
-        "neutral_primary": edit_step(step, spans, r.clause_index, r.neutral_primary),
-        "neutral_secondary": edit_step(step, spans, r.clause_index, r.neutral_secondary),
-        "inert_neutral": edit_step(step, spans, r.inert_index, r.inert_neutral),
-        "deleted": edit_step(step, spans, r.clause_index, None),
-    }
+    conds = dict(condition_texts(r, step), deleted=edit_step(step, spans, r.clause_index, None))
     assert conds["present"] == step
     row = {"event_id": r.event_id, "target_goal": r.target_goal, "type": r.trigger_type}
     for name, text in conds.items():
