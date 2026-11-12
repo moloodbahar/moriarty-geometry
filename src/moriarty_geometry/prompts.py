@@ -60,6 +60,24 @@ def story_block(steps: Sequence[str]) -> str:
     return "\n".join(f"[step {i + 1}] {s}" for i, s in enumerate(steps))
 
 
+def _add_position_markers(user: str, story: str, cand_lines: Sequence[str], markers: Dict[str, int]) -> None:
+    """Markers needed by the geometry and patching analyses:
+    after_story  — char offset where the story block ends. Everything after it
+                   is identical between a clause-present and a clause-replaced
+                   prompt, so it defines the suffix that patching aligns on.
+    cand_end_k   — char offset where the candidate at LIST POSITION k ends.
+                   The hidden state there has seen the story and candidates
+                   0..k only (causal mask): a per-candidate read-out point."""
+    head = "STORY OPENING:\n" + story
+    assert user.startswith(head)
+    markers["after_story"] = len(head)
+    start = user.rindex("CANDIDATE HIDDEN GOALS:")
+    for k, line in enumerate(cand_lines):
+        i = user.index(line, start)
+        markers[f"cand_end_{k}"] = i + len(line)
+        start = i + len(line)
+
+
 def rotations_native(n: int = 4) -> List[Tuple[int, ...]]:
     """The four cyclic rotations used by MORIARTY: goal i sits at position
     (i + r) mod 4 for r = 0..3."""
@@ -77,11 +95,14 @@ def build_native(steps: Sequence[str], goals: Sequence[str], rotation: int,
         lines += [f"CHARACTERS:\n{chars_block}", ""]
     lines.append("CANDIDATE HIDDEN GOALS:")
     letter_to_goal = {}
+    cand_lines = []
     for pos, gi in enumerate(order):
-        lines.append(f"{LETTERS[pos]}. {goals[gi]}")
+        cand_lines.append(f"{LETTERS[pos]}. {goals[gi]}")
         letter_to_goal[LETTERS[pos]] = goals[gi]
+    lines += cand_lines
     user = "\n".join(lines)
     markers = {"after_candidates": len(user)}
+    _add_position_markers(user, story_block(steps), cand_lines, markers)
     user += "\n\nWhich is most likely? Answer with a single letter."
     return PromptSpec(SYSTEM_NATIVE, user, letter_to_goal, order, tuple(LETTERS), markers, "native")
 
@@ -112,10 +133,11 @@ def build_decoupled(steps: Sequence[str], goals: Sequence[str], order: Sequence[
     if chars_block:
         lines += [f"CHARACTERS:\n{chars_block}", ""]
     lines.append("CANDIDATE HIDDEN GOALS:")
-    for pos, gi in enumerate(order):
-        lines.append(f"{pos + 1}. {goals[gi]}")
+    cand_lines = [f"{pos + 1}. {goals[gi]}" for pos, gi in enumerate(order)]
+    lines += cand_lines
     user = "\n".join(lines)
     markers = {"after_candidates": len(user)}
+    _add_position_markers(user, story_block(steps), cand_lines, markers)
     map_str = "; ".join(f"{ORDINALS[pos]} -> {mapping[pos]}" for pos in range(4))
     user += f"\n\nANSWER MAPPING: {map_str}."
     markers["after_mapping"] = len(user)

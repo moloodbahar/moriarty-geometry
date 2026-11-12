@@ -165,6 +165,106 @@ class OpenWeightsProbe:
         return out
 
 
+    # ------------------------------------------------------------------
+    # Block-level capture and patching (used by scripts/06_patching.py).
+    #
+    # These work on the residual stream *leaving transformer block b*
+    # (b = 0..L-1), taken with forward hooks. For b < L-1 that equals
+    # hidden_states[b+1]; for the last block it is the PRE-final-norm state,
+    # which is what a patch must edit. Positions are addressed from the END
+    # of the sequence, because a clause-present and a clause-replaced prompt
+    # share an identical suffix (everything after the story) but not a
+    # prefix length.
+    def _layers(self):
+        base = self.model.get_decoder() if hasattr(self.model, "get_decoder") else self.model.model
+        for name in ("layers", "h"):
+            if hasattr(base, name):
+                return getattr(base, name)
+        raise RuntimeError("could not locate the list of transformer blocks")
+
+    def _encode(self, spec: PromptSpec):
+        text, markers = self.render(spec)
+        enc = self.tok(text, return_tensors="pt", return_offsets_mapping=True, add_special_tokens=False)
+        offsets = enc.pop("offset_mapping")[0].tolist()
+        return enc["input_ids"].to(self.device), offsets, markers
+
+    def suffix_len(self, spec: PromptSpec) -> int:
+        """Number of tokens lying wholly after the story block."""
+        ids, offsets, markers = self._encode(spec)
+        cut = markers["after_story"]
+        return sum(1 for (s, e) in offsets if s >= cut and e > s)
+
+    def describe_markers(self, spec: PromptSpec) -> Dict[str, Tuple[int, str]]:
+        """marker -> (token index, token text). Print this once per model and
+        read it: an off-by-one here silently moves every read-out."""
+        ids, offsets, markers = self._encode(spec)
+        out = {}
+        for name, cpos in markers.items():
+            i = self._token_index_for_char(offsets, cpos)
+            out[name] = (i, self.tok.decode(ids[0, i: i + 1]))
+        out["answer"] = (ids.shape[1] - 1, self.tok.decode(ids[0, -1:]))
+        return out
+
+    def _result(self, spec: PromptSpec, logits) -> CallResult:
+        probs = self.torch.softmax(logits.float(), dim=-1)
+        lm, cov = label_mass(probs, self.sets)
+        gd = to_goal_distribution(lm, spec)
+        return CallResult(spec.fmt, spec.order, spec.mapping, lm, cov, gd, max(gd, key=gd.get))
+
+    def run_blocks(self, spec: PromptSpec, n_suffix: int, capture: Sequence[int] = (),
+                   edit: Optional[Tuple[int, "object"]] = None):
+        """One forward pass. `capture`: block indices whose output at the last
+        n_suffix positions is returned as {block: (n_suffix, d) float32 cpu}.
+        `edit` = (block, fn): fn maps that block's (n_suffix, d) float32 slice
+        to its replacement, written back in the forward pass so every later
+        block sees it. Returns (CallResult, captured)."""
+        torch = self.torch
+        ids, _, _ = self._encode(spec)
+        if n_suffix > ids.shape[1]:
+            raise ValueError("n_suffix longer than the sequence")
+        layers = self._layers()
+        grabbed: Dict[int, "object"] = {}
+        handles = []
+
+        def make_hook(b):
+            def hook(mod, inp, out):
+                h = out[0] if isinstance(out, tuple) else out
+                seg = h[0, -n_suffix:, :].detach().float().cpu().clone()
+                if b in capture:
+                    grabbed[b] = seg
+                if edit is not None and edit[0] == b:
+                    new = edit[1](seg).to(device=h.device, dtype=h.dtype)
+                    h = h.clone()
+                    h[0, -n_suffix:, :] = new
+                    return (h,) + tuple(out[1:]) if isinstance(out, tuple) else h
+                return None
+            return hook
+
+        for b in set(capture) | ({edit[0]} if edit is not None else set()):
+            handles.append(layers[b].register_forward_hook(make_hook(b)))
+        try:
+            with torch.no_grad():
+                out = self.model(ids)
+        finally:
+            for h in handles:
+                h.remove()
+        return self._result(spec, out.logits[0, -1]), grabbed
+
+    def reference_vectors(self, texts: Sequence[str]):
+        """Context-free representation of each text: hidden state at its last
+        token, every layer -> (n_texts, L+1, d) float32. Used as the shared
+        content space for the selection index (goal ids mean nothing across
+        families; these vectors do)."""
+        torch = self.torch
+        out = []
+        for t in texts:
+            enc = self.tok(t, return_tensors="pt")
+            with torch.no_grad():
+                hs = self.model(enc["input_ids"].to(self.device), output_hidden_states=True).hidden_states
+            out.append(torch.stack([h[0, -1] for h in hs]).float().cpu())
+        return torch.stack(out)
+
+
 # ---------------------------------------------------- permutation-averaged run
 def run_design(probe: OpenWeightsProbe, specs: Sequence[PromptSpec], **kw) -> Tuple[Dict[str, float], List[CallResult]]:
     """Run every spec in a design (4 native rotations, or 16 decoupled cells),

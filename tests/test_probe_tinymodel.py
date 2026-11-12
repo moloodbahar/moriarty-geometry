@@ -65,3 +65,48 @@ def test_native_and_decoupled_agree_on_letter_semantics():
     n = build_native([], goals, 2)
     d = build_decoupled([], goals, latin_orders()[2], ("A", "B", "C", "D"))
     assert n.letter_to_goal == d.letter_to_goal
+
+
+def _pn_specs():
+    goals = ["true goal", "distractor one", "distractor two", "distractor three"]
+    o, m = latin_orders()[1], latin_mappings()[0]
+    P_ = build_decoupled(["the story has not started yet goal one"], goals, o, m)
+    N_ = build_decoupled(["the story has not started yet two three true"], goals, o, m)
+    return P_, N_
+
+
+def test_markers_point_at_candidate_ends_and_suffix_is_shared():
+    pr = TinyProbe()
+    P_, N_ = _pn_specs()
+    d = pr.describe_markers(P_)
+    idx = [d[f"cand_end_{k}"][0] for k in range(4)]
+    assert idx == sorted(idx) and len(set(idx)) == 4
+    assert d["cand_end_3"][0] == d["after_candidates"][0] < d["answer"][0]
+    assert pr.suffix_len(P_) == pr.suffix_len(N_) > 0
+
+
+def test_identity_patch_is_a_noop_and_last_block_patch_reproduces_donor():
+    pr = TinyProbe()
+    P_, N_ = _pn_specs()
+    n = min(pr.suffix_len(P_), pr.suffix_len(N_))
+    last = pr.n_layers - 1
+    base_P, hP = pr.run_blocks(P_, n, capture=range(pr.n_layers))
+    base_N, hN = pr.run_blocks(N_, n, capture=range(pr.n_layers))
+    assert max(abs(base_P.goal_dist[g] - base_N.goal_dist[g]) for g in base_P.goal_dist) > 1e-6
+    # identity patch
+    same, _ = pr.run_blocks(P_, n, edit=(1, lambda h: h))
+    assert all(abs(same.goal_dist[g] - base_P.goal_dist[g]) < 1e-5 for g in same.goal_dist)
+    # replacing N's last-block output at the answer position by P's gives P's answer exactly
+    def donor(h):
+        h = h.clone(); h[-1] = hP[last][-1]; return h
+    patched, _ = pr.run_blocks(N_, n, edit=(last, donor))
+    assert all(abs(patched.goal_dist[g] - base_P.goal_dist[g]) < 1e-5 for g in patched.goal_dist)
+    # block capture agrees with hidden_states for a non-final block
+    res = pr.call(P_, capture=("answer",))
+    assert torch.allclose(res.hidden["answer"][1].float(), hP[0][-1], atol=1e-5)
+
+
+def test_reference_vectors_shape():
+    pr = TinyProbe()
+    R = pr.reference_vectors(["true goal", "distractor one"])
+    assert R.shape[0] == 2 and R.shape[1] == pr.n_layers + 1

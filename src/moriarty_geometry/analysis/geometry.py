@@ -1,5 +1,10 @@
 """Representational geometry.
 
+NOTE (2026-11-12): the primary Li et al. analogue is now the cross-position
+selection index in analysis/selection.py. `cross_position_generalisation`
+below decodes a goal *index*, which has no meaning across families (index 0
+is the true goal in every episode); it is kept for within-family use only.
+
 Two analyses with different claims:
 
 1. cross_position_generalisation — the Li et al. (2026) analogue. Train a

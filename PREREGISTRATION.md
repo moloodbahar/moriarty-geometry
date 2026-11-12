@@ -191,11 +191,24 @@ Deviations from this document will be listed in a dated deviations section in th
 
 ---
 
+## 10. Pending amendments (2026-11-12; this document is still a draft and not frozen)
+
+These are proposed and implemented in code, but each needs a decision before the freeze in §3.2. Details and reasons: DECISIONS.md §5.
+
+1. **H3 primary analysis.** Replace "a decoder trained to recover the content (goal identity) of the dominant candidate … in held-out families" with the cross-position selection index (`analysis/selection.py`). Reason: goal identity is not defined across families, and the canonical index 0 is the true goal in every episode. Contrast: clause present vs neutral replacement at the same prefix. Test: family-clustered bootstrap over events, one-sided, for the effect and for its excess over the inert-clause edit.
+2. **Recording.** §4 already specifies candidate-final-token activations; the read-out markers are now `cand_end_0..3`, `after_candidates`, `answer`. Read-outs before the answer mapping are de-duplicated across mappings.
+3. **Splits.** Train / development / test by family (50 / 20 / 30, minimum one each, fixed seed 0). Maps and subspaces are fitted on training families only; layer, block and rank are chosen on development families.
+4. **H4.** Patches are applied at block outputs at the last `--tail` positions (default 1, the answer position). Added controls: another family's event as donor; a subspace learned from present-minus-inert-edit differences. Sanity checks that gate the analysis: identity patch and last-block answer-position patch, tolerance 5e-3.
+5. **Open: sample definition.** Whether H1 transfer gates H2–H4 (§6, unchanged here) or events are detected and localised on the recorded model.
+6. **Open: H2 probe.** Multinomial dominant-goal probe (§5.2) vs the shared binary probe in `analysis/decoding.py`.
+
+---
+
 ## References
 
 Bernardi, S., Benna, M. K., Rigotti, M., Munuera, J., Fusi, S., & Salzman, C. D. (2020). The geometry of abstraction in the hippocampus and prefrontal cortex. *Cell*, 183(4), 954–967.
 
-Li, H., Chrysanthidis, N., Brincat, S. L., Rose, J., & Miller, E. K. (2026). Neural subspace reorganization reflects value-based decision-making. *iScience*.
+Li, H., Chrysanthidis, N., Brincat, S. L., Rose, J., & Miller, E. K. (2026). Neural subspace reorganization reflects value-based decision-making. *iScience*. PMID 41676500.
 
 Li, K., Patel, O., Viégas, F., Pfister, H., & Wattenberg, M. (2023). Inference-time intervention: eliciting truthful answers from a language model. *Advances in Neural Information Processing Systems*, 36.
 

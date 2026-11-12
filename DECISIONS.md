@@ -113,3 +113,96 @@ of behavioural and representational outcomes.
 6. Generate the 48-episode feasibility set; `scripts/05_feasibility.py`;
    freeze the confirmatory sample size, splits and outcomes; update
    `PREREGISTRATION.md`, record its hash.
+
+## 5. Changes of 2026-11-12 (branch `geometry-fixes-2026-11`)
+
+### 5.1 Source paper
+
+The neuroscience result the H3 analogue rests on is Li, Chrysanthidis,
+Brincat, Rose & Miller (2026), *Neural subspace reorganization reflects
+value-based decision-making*, iScience, **PMID 41676500** (confirmed by the
+PI on 2026-11-12).
+
+### 5.2 Defects found in the first version of the stage-2/3 code
+
+| Defect | Consequence | Fix |
+|---|---|---|
+| `04_analyse.py` gave all four candidates of a prompt cell the same activation vector (`layer_acts=h[c]`) with different `dominant` labels | identical features with different labels cannot be decoded; the CCGP / parallelism output was not interpretable | per-candidate read-outs are recorded (`h_cand`, by list position); `04_analyse.py` rewritten |
+| The canonical goal index was used as "content" across families, but `goals[0]` is the true goal in all 14 confirmatory episodes | a cross-family content decoder would decode "the true-goal slot" | content is defined by context-free reference vectors of the goal texts (`probe.reference_vectors`), never by index |
+| `03_record_activations.py` recorded only `after_candidates` and `answer`, although PREREGISTRATION §4 specifies the final token of each candidate span | no per-candidate analysis was possible | markers `cand_end_0..3` and `after_story` added to both prompt formats |
+| Only the at-event prefix under the present condition was analysed | the pre/post contrast of H3 was never computed | every condition is recorded and the contrast is present vs neutral replacement at the same prefix |
+| No patched forward pass existed | H4 could not be run | `probe.run_blocks` (block-level capture and edit) and `scripts/06_patching.py` |
+
+### 5.3 Primary G1/H3 statistic: the cross-position selection index
+
+`analysis/selection.py`. A ridge map is fitted on training families from the
+read-out activation to the family-centred reference vector of the goal that
+is dominant at that prefix, one map per list position of the dominant goal.
+The selection index of an event under a condition is the alignment of the
+mapped read-out with the target goal's reference minus its mean alignment
+with the other goals, with the map fitted at position i applied to cells
+whose target sits at j ≠ i. The effect is present minus neutral replacement
+at the same prefix; the inert-clause edit gives the size of a pure edit
+effect. The contrast is present vs neutral and not step t−1 vs t, because
+consecutive prefixes differ in length and content as well as in the clause.
+
+The unit is the event. Cells of the 16-cell design are repeated measures,
+and read-outs taken before the answer mapping are identical across the four
+mappings of a list order, so they are de-duplicated. Intervals are
+family-clustered bootstraps; the test is one-sided (lower bound of the 90%
+interval above zero), for both the effect and its excess over the inert edit.
+
+### 5.4 An artefact found by the null simulation, and its fix
+
+`analysis/simulate.py` generates recordings in which a position-invariant
+selected code either exists (planted) or does not (null: the clause still
+changes behaviour and a position-bound content code). In its first form the
+cross-position index was *detected in 40% of null simulations*. Cause: a map
+fitted at position i reads whatever goal sits at i; in the cross-position
+case that is a non-target goal, whose evidence the clause lowers, so the
+target-minus-others difference rises without any selected code. Fix: the goal
+sitting at the map's fitting position is excluded from the comparison set.
+After the fix: 0 of 60 null simulations detected, planted effect detected in
+all simulations at 12 families (`scripts/00b_synthetic_validation.py`).
+The same-position index stays positive under the null, which is why it is
+reported but is not the test.
+
+### 5.5 Patching
+
+Positions are addressed from the end of the sequence: a clause-present and a
+clause-replaced prompt share everything after the story but not a prefix
+length. Activations are captured and edited at block outputs with forward
+hooks, because `hidden_states[-1]` is post-final-norm and cannot be patched.
+
+Correction to the test plan of 2026-11-12, which said a full residual patch
+at all post-clause positions "must restore 100%". That is wrong for
+intermediate blocks: later blocks still attend back to the neutral clause
+tokens. The sanity checks that must hold exactly are the identity patch and
+the last-block answer-position patch; the full-suffix patch is reported as a
+restore curve over depth.
+
+### 5.6 Open decisions (not made in this change)
+
+1. **Which events define the geometry sample.** PREREGISTRATION §6 gates
+   H2–H4 on transfer of the gpt-4o-mini triggers (H1). The alternative is to
+   detect and localise events on the recorded model
+   (`scripts/02c_localise_events.py`) and report H1 transfer separately.
+2. **H3 wording.** §5.3 of the preregistration describes a decoder of goal
+   identity generalising to held-out families. Goal identity is not defined
+   across families (5.2). The selection index is proposed as the primary
+   analysis; the preregistration text must be changed before the freeze.
+3. **H2.** The preregistration specifies a multinomial dominant-goal probe;
+   `analysis/decoding.py` implements a shared binary probe. Unresolved.
+
+### 5.7 Not implemented
+
+Matched-confidence wrong-vs-right probe (G2c); sparse-autoencoder
+decomposition; belief-vs-report prompts; the LoRA observer; mixed-effects
+models for H2.
+
+### 5.8 What has and has not been run
+
+31 unit tests pass. All scripts were executed end to end on a randomly
+initialised 3-layer model (`tests/test_scripts_tinymodel.py`), which checks
+code paths and file shapes only. **Nothing in this change has been run on a
+real model.**
