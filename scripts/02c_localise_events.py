@@ -23,11 +23,12 @@ ADD_GAIN, DEL_DROP = 0.15, 0.10
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
 ap.add_argument("--episodes", nargs="+", default=["data/episodes_confirmatory_reconstructed.json"])
+ap.add_argument("--report", nargs="*", default=None, help="MORIARTY checks_report.json files; episodes they mark not usable are dropped")
 ap.add_argument("--pilot", default="results/pilot", help="directory holding trajectory_transfer.json")
 ap.add_argument("--out", default="results/pilot/localised_events.json")
 ap.add_argument("--device", default="cuda")
 args = ap.parse_args()
-conf = load_episodes(args.episodes); traj = json.load(open(pathlib.Path(args.pilot) / "trajectory_transfer.json"))
+conf = load_episodes(args.episodes, args.report); traj = json.load(open(pathlib.Path(args.pilot) / "trajectory_transfer.json"))
 probe = OpenWeightsProbe(args.model, device=args.device)
 
 def p_goal(steps, goals, goal):

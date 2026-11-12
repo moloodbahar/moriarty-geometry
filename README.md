@@ -63,6 +63,7 @@ scripts/
   03_record_activations.py       reference vectors, all prefixes, registry events
   04_analyse.py                  selection index + candidate-token analyses
   05_feasibility.py              sample-size estimate from pilot yields
+  lint_seed_families.py          mechanical checks on new MORIARTY seed families
   06_patching.py                 patching sanity checks, cross-cell patch (primary causal test),
                                  subspace patch (secondary)
 data/
@@ -70,7 +71,8 @@ data/
   episodes_confirmatory_reconstructed.json  14 confirmatory episodes + Agent-B posteriors, rebuilt from logs
   triggers_pilot.json                       original pilot trigger records
   neutral_registry.json                     DRAFT per-event replacements for the 5 strict positions
-tests/                                      35 tests, including end-to-end runs of the scripts on a random tiny model
+  seeds_v5_draft.json                       30 drafted seed families (f27-f56): linted, NOT audited, NOT gated
+tests/                                      37 tests, including end-to-end runs of the scripts on a random tiny model
 ```
 
 ## Running it

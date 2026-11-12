@@ -25,7 +25,7 @@ python scripts/00_verify_reconstruction.py
 python scripts/00b_synthetic_validation.py
 ```
 
-**Gate.** 35 tests pass; reconstruction reports 0 new-splitter failures; the
+**Gate.** 37 tests pass; reconstruction reports 0 new-splitter failures; the
 synthetic validation prints four `PASS` lines. Before any confirmatory
 analysis, re-run `00b` with `--families` set to the number of event-bearing
 families you actually have. If it then fails the power check, your n is too
@@ -164,19 +164,50 @@ the same-cell ceiling.
 Phase B (subspace patch at the answer position) is secondary;
 `--skip-subspace` omits it.
 
-## Step 7 — sample size, then the confirmatory run
+## Step 7 — more families
 
-1. Generate the 48-episode feasibility set with the MORIARTY pipeline (other
-   repository), run steps 1–2 on it, and count yields per family.
-2. `python scripts/05_feasibility.py yields.json --target 60`, where
-   `yields.json` is a list of per-family counts with the fields of
-   `analysis/feasibility.FamilyYield`. Plan for at least 20 families with
-   events, whatever the event count.
-3. Decide the open items in PREREGISTRATION.md §10; write and freeze the
+The 16 existing families cannot give 6 held-out families, so new ones are
+needed whatever step 2 finds. "More data" means more seed families: the
+MORIARTY pipeline generates four episodes per family that passes the prior
+gate, and there is no count flag. `--per-seed` above 1 adds stories inside a
+family, which does not add families.
+
+1. Seed families. `data/seeds_v5_draft.json` holds 30 drafted families
+   (`f27`–`f56`) in the `seeds_v4_confirmatory.json` format. They are
+   unaudited drafts: they pass the mechanical lint and nothing else. Read
+   them, edit or delete as you see fit, and lint any you add:
+   ```
+   python scripts/lint_seed_families.py data/seeds_v5_draft.json \
+       --existing ../Moriarty/seeds_v4_confirmatory.json ../Moriarty/seeds_v3_1.json
+   ```
+2. Generate and gate, in the MORIARTY repository (a few dollars of
+   gpt-4o-mini; expect fewer than half the families to pass the prior gate):
+   ```
+   python run_pipeline.py --name geom_batch1 \
+       --seeds ../moriarty-geometry/data/seeds_v5_draft.json --skip-l1 --skip-l2
+   ```
+   `run_pipeline.py` calls `filter_seeds.py`, which is not in the public
+   MORIARTY repository as of 2026-11-12; run it from your working copy.
+3. Back here, add the new episodes and their checks report to every command.
+   Episodes the report marks not usable are dropped:
+   ```
+   EPS="$EPS ../Moriarty/results/geom_batch1/episodes.json"
+   REP="../Moriarty/results/geom_batch1/checks_report.json"
+   python scripts/02d_scan_clauses.py --model $MODEL --episodes $EPS --report $REP --out results/scan
+   ```
+   then steps 3–6 with the same `--episodes $EPS --report $REP`.
+4. Count the families that have an event toward a WRONG goal. Generate
+   further batches until there are about 20. `scripts/05_feasibility.py`
+   turns per-family yields into a required number of families.
+
+## Step 8 — the confirmatory run
+
+1. Decide the open items in PREREGISTRATION.md §10; write and freeze the
    neutral replacements; hash the preregistration (`04_analyse.py` writes
    its SHA-256 into the output).
-4. Generate the confirmatory families, repeat steps 1 and 3–6 once, on a
-   fixed seed.
+2. Generate the confirmatory families (new ones, not those used to develop
+   the instrument), then run steps 1 and 3–6 once, on a fixed seed.
+3. Repeat on a second model family.
 
 ## Not yet implemented
 

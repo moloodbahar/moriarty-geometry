@@ -202,7 +202,7 @@ models for H2.
 
 ### 5.8 What has and has not been run
 
-The unit tests pass (35 after §6). All scripts were executed end to end on a randomly
+The unit tests pass (37 after §7). All scripts were executed end to end on a randomly
 initialised 3-layer model (`tests/test_scripts_tinymodel.py`), which checks
 code paths and file shapes only. **Nothing in this change has been run on a
 real model.**
@@ -301,3 +301,29 @@ Verified only on a random tiny model. Not implemented: a sweep over every
 token between the list and the answer; the matched-confidence wrong-vs-right
 probe; sparse-autoencoder decomposition; belief-vs-report prompts; the LoRA
 observer; mixed-effects models for H2. The open decisions of §5.6 stand.
+
+## 7. Third change of 2026-11-12: more families
+
+The existing data cover 16 families (10 exploratory, 6 confirmatory). The
+test needs about 20 families with events (§6.1), so new families are needed
+regardless of what the clause scan finds.
+
+* `data/seeds_v5_draft.json`: 30 seed families, `f27`–`f56`, written by
+  Claude in the `seeds_v4_confirmatory.json` format and shape (three
+  "Get <Name> to …, believing …" goals, one per character, and one
+  "Lead the … each believing …" group goal; routine world with decisions
+  still open). **Status: drafts.** They pass `scripts/lint_seed_families.py`
+  with no warnings, load in the generator's `expand_seeds` (120 episode
+  seeds), and reuse no character name from earlier seed files. They have not
+  been read by the PI and have not been through Check 0. In v4.3, 7 of 16
+  hand-designed families passed that gate.
+* The lint is a crude screen for premise leak, core-goal echo and uneven
+  goal shape. For calibration, the 16 v4 families draw 58 warnings from it,
+  and families that passed Check 0 are among them. A clean lint predicts
+  nothing about the gate.
+* `episodes.load_episodes(paths, reports)` and `--report` on the scripts
+  drop episodes a MORIARTY checks report marks not usable. The shipped
+  exploratory file has no report in this repository and still contains
+  unusable episodes.
+* Families used to develop the instrument must not be reused for the
+  confirmatory run.

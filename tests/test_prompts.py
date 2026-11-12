@@ -36,3 +36,26 @@ def test_mappings_are_derangements_except_identity():
     for m in ms:
         if m == ("A", "B", "C", "D"): continue
         assert all(m[i] != LETTERS[i] for i in range(4))
+
+
+def test_episode_loader_reads_both_schemas_and_applies_usable_filter(tmp_path, capsys):
+    import json, pathlib
+    from moriarty_geometry.episodes import load_episodes
+    root = pathlib.Path(__file__).resolve().parents[1] / "data"
+    both = [str(root / "episodes_confirmatory_reconstructed.json"), str(root / "episodes_exploratory.json")]
+    eps = load_episodes(both)
+    assert len(eps) == 54 and all(v["episode"]["goals"][0] == v["episode"]["true"] for v in eps.values())
+    rep = tmp_path / "checks_report.json"
+    json.dump({"results": [{"episode_id": "f01_charity_g1", "usable": False},
+                           {"episode_id": "f01_charity_g2", "usable": True}]}, open(rep, "w"))
+    kept = load_episodes(both, [str(rep)])
+    assert "f01_charity_g1" not in kept and "f01_charity_g2" in kept and len(kept) == 53
+    assert "1 dropped as not usable; 52 not covered" in capsys.readouterr().out
+
+
+def test_draft_seed_families_pass_the_lint():
+    import subprocess, sys, pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    r = subprocess.run([sys.executable, str(root / "scripts" / "lint_seed_families.py"), str(root / "data" / "seeds_v5_draft.json")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0 and "30 families, 0 errors, 0 warnings" in r.stdout

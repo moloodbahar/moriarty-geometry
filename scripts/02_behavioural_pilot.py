@@ -23,6 +23,7 @@ from moriarty_geometry.neutral import load_registry, condition_texts
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
 ap.add_argument("--episodes", nargs="+", default=["data/episodes_confirmatory_reconstructed.json"])
+ap.add_argument("--report", nargs="*", default=None, help="MORIARTY checks_report.json files; episodes they mark not usable are dropped")
 ap.add_argument("--registry", default="data/neutral_registry.json")
 ap.add_argument("--format", choices=["native", "decoupled", "both"], default="native")
 ap.add_argument("--observer", choices=["naive", "agent_b"], default="naive")
@@ -31,7 +32,7 @@ ap.add_argument("--device", default="cuda")
 args = ap.parse_args()
 out = pathlib.Path(args.out); out.mkdir(parents=True, exist_ok=True)
 
-conf = load_episodes(args.episodes)
+conf = load_episodes(args.episodes, args.report)
 probe = OpenWeightsProbe(args.model, device=args.device)
 
 def designs(steps, goals, cb):

@@ -53,6 +53,7 @@ from moriarty_geometry.analysis.selection import family_of, family_split, cluste
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
 ap.add_argument("--episodes", nargs="+", default=["data/episodes_confirmatory_reconstructed.json"])
+ap.add_argument("--report", nargs="*", default=None, help="MORIARTY checks_report.json files; episodes they mark not usable are dropped")
 ap.add_argument("--registry", default="data/neutral_registry.json")
 ap.add_argument("--blocks", type=int, nargs="*", default=None, help="block indices; default: 8 evenly spaced")
 ap.add_argument("--pairs", type=int, default=2, help="source->recipient pairs per event and kind (1-4)")
@@ -67,7 +68,7 @@ ap.add_argument("--device", default="cuda")
 args = ap.parse_args()
 
 import torch
-conf = load_episodes(args.episodes)
+conf = load_episodes(args.episodes, args.report)
 probe = OpenWeightsProbe(args.model, device=args.device)
 NB = probe.n_layers
 blocks = args.blocks or sorted(set(int(round(x)) for x in np.linspace(1, NB - 1, min(8, NB - 1))))
